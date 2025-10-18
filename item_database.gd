@@ -1,118 +1,96 @@
-# autoload as "ItemDB"
+# systems/item_database.gd (Autoload as "ItemDB")
 extends Node
 
-var items: Dictionary = {}  # item_id -> ItemData
-var item_types: Dictionary = {}
+var templates: Dictionary = {}  # item_id -> ItemTemplate
+var scenes: Dictionary = {}      # archetype -> PackedScene
 
-class ItemData:
+class ItemTemplate:
 	var id: String
 	var name: String
-	var type: String
-	var subtype: String
+	var archetype: String
+	var mesh_override: String
+	var icon: Texture2D
 	var rarity: String
-	var level_requirement: int
-	var base_stats: Dictionary
-	var scaling: Dictionary
-	var icon_path: String
-	var mesh_path: String
-	var stack_size: int
-	var sell_price: int
-	var effects: Array = []
-	var slot: String = ""
-	
-	func get_stat(stat_name: String, character_level: int = 0, character_stats: Dictionary = {}) -> float:
-		"""Calculate stat value based on scaling"""
-		var base = base_stats.get(stat_name, 0.0)
-		
-		# Level scaling
-		var level_key = stat_name + "_per_level"
-		if scaling.has(level_key):
-			base += scaling[level_key] * character_level
-		
-		# Stat scaling (e.g., strength_scaling for damage)
-		for stat in character_stats.keys():
-			var scaling_key = stat + "_scaling"
-			if scaling.has(scaling_key):
-				base += character_stats[stat] * scaling[scaling_key]
-		
-		return base
+	var level_req: int
+	var slot: String
+	var item_type: String
+	var stats: Dictionary
+	var effects: Array
+	var stackable: bool
+	var max_stack: int
+	var sell_value: int
+	var weight: float
 
 func _ready() -> void:
-	load_item_database()
-	load_item_types()
+	_load_definitions()
+	_preload_scenes()
 
-func load_item_database() -> void:
-	var file = FileAccess.open("res://data/items/items.json", FileAccess.READ)
-	if file == null:
-		push_error("Failed to load items.json")
+func _load_definitions() -> void:
+	var file = FileAccess.open("res://data/items/item_definitions.json", FileAccess.READ)
+	if not file:
+		push_error("Failed to load item_definitions.json")
 		return
 	
-	var json_string = file.get_as_text()
+	var json = JSON.parse_string(file.get_as_text())
 	file.close()
 	
-	var json = JSON.new()
-	var error = json.parse(json_string)
-	if error != OK:
-		push_error("Failed to parse items.json")
-		return
-	
-	var data = json.data
-	for item_dict in data["items"]:
-		var item = ItemData.new()
-		item.id = item_dict.get("id", "")
-		item.name = item_dict.get("name", "Unknown")
-		item.type = item_dict.get("type", "")
-		item.subtype = item_dict.get("subtype", "")
-		item.rarity = item_dict.get("rarity", "common")
-		item.level_requirement = item_dict.get("level_requirement", 1)
-		item.base_stats = item_dict.get("base_stats", {})
-		item.scaling = item_dict.get("scaling", {})
-		item.icon_path = item_dict.get("icon", "")
-		item.mesh_path = item_dict.get("mesh", "")
-		item.stack_size = item_dict.get("stack_size", 1)
-		item.sell_price = item_dict.get("sell_price", 0)
-		item.effects = item_dict.get("effects", [])
-		item.slot = item_dict.get("slot", "")
+	for data in json["items"]:
+		var template = ItemTemplate.new()
+		template.id = data["id"]
+		template.name = data["name"]
+		template.archetype = data["archetype"]
+		template.mesh_override = data.get("mesh_override", "")
+		template.icon = load(data["icon"]) if data.get("icon") else null
+		template.rarity = data.get("rarity", "common")
+		template.level_req = data.get("level_req", 1)
+		template.slot = data.get("slot", "")
+		template.item_type = data.get("item_type", "misc")
+		template.stats = data.get("stats", {})
+		template.effects = data.get("effects", [])
+		template.stackable = data.get("stackable", false)
+		template.max_stack = data.get("max_stack", 1)
+		template.sell_value = data.get("sell_value", 0)
+		template.weight = data.get("weight", 1.0)
 		
-		items[item.id] = item
+		templates[template.id] = template
 	
-	print("Loaded %d items" % items.size())
+	print("✅ Loaded ", templates.size(), " item templates")
 
-func load_item_types() -> void:
-	var file = FileAccess.open("res://data/items/item_types.json", FileAccess.READ)
-	if file == null:
-		push_error("Failed to load item_types.json")
-		return
+func _preload_scenes() -> void:
+	var archetypes_set = {}
+	for template in templates.values():
+		archetypes_set[template.archetype] = true
 	
-	var json_string = file.get_as_text()
-	file.close()
+	for archetype in archetypes_set.keys():
+		var path = "res://data/items/archetypes/%s.tscn" % archetype
+		if ResourceLoader.exists(path):
+			scenes[archetype] = load(path)
+			print("  📦 Loaded item archetype: ", archetype)
+		else:
+			push_error("Missing scene: ", path)
 	
-	var json = JSON.new()
-	var error = json.parse(json_string)
-	if error != OK:
-		push_error("Failed to parse item_types.json")
-		return
+	print("✅ Preloaded ", scenes.size(), " item archetypes")
+
+func get_template(item_id: String) -> ItemTemplate:
+	return templates.get(item_id)
+
+func spawn_world_item(item_id: String, stack_count: int = 1) -> Node3D:
+	var template = get_template(item_id)
+	if not template:
+		push_error("Unknown item: ", item_id)
+		return null
 	
-	item_types = json.data["types"]
-	print("Loaded %d item types" % item_types.size())
-
-func get_item(item_id: String) -> ItemData:
-	"""Get item data by ID"""
-	return items.get(item_id, null)
-
-func get_items_by_type(type: String, subtype: String = "") -> Array[ItemData]:
-	"""Get all items of a specific type"""
-	var result: Array[ItemData] = []
-	for item in items.values():
-		if item.type == type:
-			if subtype == "" or item.subtype == subtype:
-				result.append(item)
-	return result
-
-func get_items_by_level_range(min_level: int, max_level: int) -> Array[ItemData]:
-	"""Get items within a level range"""
-	var result: Array[ItemData] = []
-	for item in items.values():
-		if item.level_requirement >= min_level and item.level_requirement <= max_level:
-			result.append(item)
-	return result
+	# Get from pool
+	var item = ItemPool.get_item(scenes[template.archetype], template.archetype)
+	
+	# Apply template data
+	item.item_id = item_id
+	item.item_name = template.name
+	item.stack_count = stack_count
+	item.template = template
+	
+	# Override mesh if specified
+	if template.mesh_override and item.has_method("set_mesh"):
+		item.set_mesh(load(template.mesh_override))
+	
+	return item

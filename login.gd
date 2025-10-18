@@ -69,7 +69,7 @@ func _on_login_success(account_data: Dictionary) -> void:
 	Net.account_data = account_data
 	
 	# Change to character selection screen
-	get_tree().change_scene_to_file("res://character_select.tscn")
+	get_tree().change_scene_to_file("res://ui/character_select.tscn")
 
 func _on_login_failed(reason: String) -> void:
 	status_label.text = "❌ Login failed: " + reason

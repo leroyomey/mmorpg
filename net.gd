@@ -24,7 +24,7 @@ var local_player: CharacterBody3D = null
 var visible_entities: Dictionary = {}
 
 # Monster system
-var monster_scene: PackedScene = preload("res://actors/monsters/lvl_1_zombie/lvl_1_testmonster.tscn")
+var monster_scene: PackedScene = preload("res://data/monsters/archetypes/Zombie1/zombie.tscn")
 var monsters: Dictionary = {}
 var visible_monsters: Dictionary = {}
 
@@ -36,7 +36,8 @@ var world_ready := false
 
 # preload your scenes; change paths to match your project
 const PLAYER_SCENE := preload("res://actors/players/player.tscn")
-const MONSTER_SCENE := preload("res://actors/monsters/lvl_1_zombie/lvl_1_testmonster.tscn")
+const MONSTER_SCENE := preload("res://data/monsters/archetypes/zombie.tscn")
+
 
 # ============================================================================
 # SPAWN PARENT
@@ -464,18 +465,30 @@ func _ensure_monster(id: String, type: String, level: int) -> Node:
 		if is_instance_valid(existing):
 			return existing
 		else:
-			# Monster was freed, remove from dict
 			monsters.erase(id)
 	
-	# Create new monster
-	var monster = monster_scene.instantiate()
-	monster.monster_id = id
-	monster.monster_type = type
-	monster.level = level
+	# Use MonsterDB to spawn properly (if available)
+	var monster = null
 	
+	if MonsterDB and MonsterDB.has_method("spawn_monster"):
+		# Use the proper spawn system
+		monster = MonsterDB.spawn_monster(type, level)
+		if not monster:
+			push_error("❌ Failed to spawn monster from MonsterDB: ", type)
+			return null
+	else:
+		# Fallback: manual spawn (old system)
+		monster = monster_scene.instantiate()
+		monster.monster_id = id
+		monster.archetype_id = type  # ← CORRECT PROPERTY
+		monster.level = level
+	
+	# Set the instance ID
+	monster.monster_id = id
+	
+	# Add to world
 	var parent: Node = _spawn_parent if _spawn_parent != null else get_tree().current_scene
 	
-	# Make sure parent is valid
 	if not is_instance_valid(parent) or not parent.is_inside_tree():
 		push_error("❌ Cannot spawn monster - invalid parent")
 		return null
@@ -483,7 +496,7 @@ func _ensure_monster(id: String, type: String, level: int) -> Node:
 	parent.add_child(monster)
 	
 	monsters[id] = monster
-	print("🧟 Spawned monster: ", type, " Lv.", level)
+	print("🧟 Spawned monster: ", type, " Lv.", level, " at ", monster.global_position)
 	
 	return monster
 

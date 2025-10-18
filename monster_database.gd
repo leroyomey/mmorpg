@@ -1,212 +1,110 @@
-# autoload as "MonsterDB"
+# systems/monster_database.gd (Autoload as "MonsterDB")
 extends Node
 
-var monsters: Dictionary = {}  # monster_id -> MonsterData
-var loot_tables: Dictionary = {}  # table_name -> LootTable
+var templates: Dictionary = {}  # monster_id -> MonsterTemplate
+var scenes: Dictionary = {}      # archetype -> PackedScene
 
-class MonsterData:
+class MonsterTemplate:
 	var id: String
 	var name: String
-	var type: String
-	var family: String
-	var is_boss: bool = false
+	var archetype: String
 	var min_level: int
 	var max_level: int
 	var base_stats: Dictionary
-	var scaling: Dictionary
-	var scene_path: String
-	var ai_type: String
+	var scaling_per_level: Dictionary
+	var xp_base: int
+	var loot_table: String
 	var abilities: Array
-	var xp_reward_base: int
-	var xp_scaling: float
-	var loot_table_id: String
+	var ai_type: String
 	var respawn_time: float
-	var resistances: Dictionary = {}
-	var phases: Array = []
 	
 	func get_stats_for_level(level: int) -> Dictionary:
-		"""Calculate monster stats at specific level"""
 		var stats = {}
-		for stat in base_stats.keys():
-			var base = base_stats[stat]
-			var scaling_key = stat + "_per_level"
-			if scaling.has(scaling_key):
-				stats[stat] = base + (scaling[scaling_key] * (level - min_level))
-			else:
-				stats[stat] = base
+		for stat_name in base_stats.keys():
+			var base = base_stats[stat_name]
+			var scale = scaling_per_level.get(stat_name, 0.0)
+			stats[stat_name] = base + (scale * (level - min_level))
 		return stats
-	
-	func get_xp_reward(level: int) -> int:
-		"""Calculate XP reward at specific level"""
-		return int(xp_reward_base * pow(xp_scaling, level - min_level))
-
-class LootTable:
-	var id: String
-	var guaranteed_drops: Array = []
-	var drop_pools: Array = []
-	var rare_drops: Array = []
-	
-	func roll_loot(monster_level: int) -> Array:
-		"""Roll for loot drops"""
-		var loot: Array = []
-		
-		# Guaranteed drops
-		for drop in guaranteed_drops:
-			var item_id = drop["item_id"]
-			var min_amt = drop.get("min_amount", 1)
-			var max_amt = drop.get("max_amount", 1)
-			var chance = drop.get("chance", 1.0)
-			
-			if randf() <= chance:
-				var amount = randi_range(min_amt, max_amt)
-				loot.append({"item_id": item_id, "amount": amount})
-		
-		# Drop pools
-		for pool in drop_pools:
-			var rolls = pool.get("rolls", 1)
-			var pool_chance = pool.get("chance", 1.0)
-			
-			if randf() <= pool_chance:
-				for i in range(rolls):
-					var item = _roll_from_pool(pool["items"], monster_level)
-					if item:
-						loot.append(item)
-		
-		# Rare drops
-		for drop in rare_drops:
-			if randf() <= drop["chance"]:
-				loot.append({"item_id": drop["item_id"], "amount": 1})
-		
-		return loot
-	
-	func _roll_from_pool(items: Array, monster_level: int) -> Dictionary:
-		"""Roll a single item from weighted pool"""
-		var valid_items = []
-		var total_weight = 0.0
-		
-		# Filter by level
-		for item_data in items:
-			var min_lvl = item_data.get("min_level", 0)
-			var max_lvl = item_data.get("max_level", 999)
-			
-			if monster_level >= min_lvl and monster_level <= max_lvl:
-				valid_items.append(item_data)
-				total_weight += item_data["weight"]
-		
-		if valid_items.size() == 0:
-			return {}
-		
-		# Weighted random selection
-		var roll = randf() * total_weight
-		var cumulative = 0.0
-		
-		for item_data in valid_items:
-			cumulative += item_data["weight"]
-			if roll <= cumulative:
-				return {
-					"item_id": item_data["item_id"],
-					"amount": item_data.get("amount", 1)
-				}
-		
-		return {}
 
 func _ready() -> void:
-	load_monster_database()
-	load_loot_tables()
+	_load_definitions()
+	_preload_scenes()
 
-func load_monster_database() -> void:
-	var file = FileAccess.open("res://data/monsters/monsters.json", FileAccess.READ)
-	if file == null:
-		push_error("Failed to load monsters.json")
+func _load_definitions() -> void:
+	var file = FileAccess.open("res://data/monsters/monster_definitions.json", FileAccess.READ)
+	if not file:
+		push_error("Failed to load monster_definitions.json")
 		return
 	
-	var json_string = file.get_as_text()
+	var json = JSON.parse_string(file.get_as_text())
 	file.close()
 	
-	var json = JSON.new()
-	var error = json.parse(json_string)
-	if error != OK:
-		push_error("Failed to parse monsters.json")
-		return
-	
-	var data = json.data
-	for monster_dict in data["monsters"]:
-		var monster = MonsterData.new()
-		monster.id = monster_dict.get("id", "")
-		monster.name = monster_dict.get("name", "Unknown")
-		monster.type = monster_dict.get("type", "")
-		monster.family = monster_dict.get("family", "")
-		monster.is_boss = monster_dict.get("boss", false)
-		monster.min_level = monster_dict.get("min_level", 1)
-		monster.max_level = monster_dict.get("max_level", 1)
-		monster.base_stats = monster_dict.get("base_stats", {})
-		monster.scaling = monster_dict.get("scaling", {})
-		monster.scene_path = monster_dict.get("scene", "")
-		monster.ai_type = monster_dict.get("ai_type", "")
-		monster.abilities = monster_dict.get("abilities", [])
-		monster.xp_reward_base = monster_dict.get("xp_reward_base", 0)
-		monster.xp_scaling = monster_dict.get("xp_scaling", 1.0)
-		monster.loot_table_id = monster_dict.get("loot_table", "")
-		monster.respawn_time = monster_dict.get("respawn_time", 60.0)
-		monster.resistances = monster_dict.get("resistances", {})
-		monster.phases = monster_dict.get("phases", [])
+	for data in json["monsters"]:
+		var template = MonsterTemplate.new()
+		template.id = data["id"]
+		template.name = data["name"]
+		template.archetype = data["archetype"]
+		template.min_level = data["min_level"]
+		template.max_level = data["max_level"]
+		template.base_stats = data["base_stats"]
+		template.scaling_per_level = data["scaling_per_level"]
+		template.xp_base = data["xp_base"]
+		template.loot_table = data.get("loot_table", "")
+		template.abilities = data.get("abilities", [])
+		template.ai_type = data.get("ai_type", "melee_aggro")
+		template.respawn_time = data.get("respawn_time", 60.0)
 		
-		monsters[monster.id] = monster
+		templates[template.id] = template
 	
-	print("Loaded %d monsters" % monsters.size())
+	print("✅ Loaded ", templates.size(), " monster templates")
 
-func load_loot_tables() -> void:
-	var file = FileAccess.open("res://data/monsters/loot_tables.json", FileAccess.READ)
-	if file == null:
-		push_error("Failed to load loot_tables.json")
-		return
+func _preload_scenes() -> void:
+	var archetypes_set = {}
+	for template in templates.values():
+		archetypes_set[template.archetype] = true
 	
-	var json_string = file.get_as_text()
-	file.close()
-	
-	var json = JSON.new()
-	var error = json.parse(json_string)
-	if error != OK:
-		push_error("Failed to parse loot_tables.json")
-		return
-	
-	var data = json.data["loot_tables"]
-	for table_id in data.keys():
-		var table_dict = data[table_id]
-		var table = LootTable.new()
-		table.id = table_id
-		table.guaranteed_drops = table_dict.get("guaranteed_drops", [])
-		table.drop_pools = table_dict.get("drop_pools", [])
-		table.rare_drops = table_dict.get("rare_drops", [])
+	for archetype in archetypes_set.keys():
+		# Handle both simple and nested paths
+		var path = ""
+		if archetype.begins_with("res://"):
+			path = archetype  # Full path provided
+		else:
+			path = "res://data/monsters/archetypes/%s.tscn" % archetype
 		
-		loot_tables[table_id] = table
+		print("  🔎 Looking for: ", path)
+		
+		if ResourceLoader.exists(path):
+			scenes[archetype] = load(path)
+			print("    ✅ Loaded archetype: ", archetype)
+		else:
+			push_error("    ❌ Missing scene: ", path)
 	
-	print("Loaded %d loot tables" % loot_tables.size())
+	print("✅ Preloaded ", scenes.size(), " monster archetypes")
 
-func get_monster(monster_id: String) -> MonsterData:
-	"""Get monster data by ID"""
-	return monsters.get(monster_id, null)
+func get_template(monster_id: String) -> MonsterTemplate:
+	return templates.get(monster_id)
 
-func get_monsters_by_level_range(min_level: int, max_level: int) -> Array:
-	"""Get monsters within level range"""
-	var result = []
-	for monster in monsters.values():
-		if monster.min_level <= max_level and monster.max_level >= min_level:
-			result.append(monster)
-	return result
-
-func get_loot_table(table_id: String) -> LootTable:
-	"""Get loot table by ID"""
-	return loot_tables.get(table_id, null)
-
-func roll_monster_loot(monster_id: String, monster_level: int) -> Array:
-	"""Roll loot for a specific monster"""
-	var monster = get_monster(monster_id)
-	if not monster:
-		return []
+func spawn_monster(monster_id: String, level: int) -> Monster:
+	var template = get_template(monster_id)
+	if not template:
+		push_error("Unknown monster: ", monster_id)
+		return null
 	
-	var loot_table = get_loot_table(monster.loot_table_id)
-	if not loot_table:
-		return []
+	# Get from pool
+	var monster = EntityPool.get_monster(scenes[template.archetype], template.archetype)
 	
-	return loot_table.roll_loot(monster_level)
+	# Apply template data
+	monster.monster_id = monster_id
+	monster.archetype_id = template.archetype
+	monster.level = clamp(level, template.min_level, template.max_level)
+	monster.monster_name = template.name
+	
+	# Calculate stats for this level
+	var stats = template.get_stats_for_level(level)
+	monster.max_health = stats["health"]
+	monster.health = monster.max_health
+	monster.damage = stats.get("damage", 10.0)
+	monster.armor = stats.get("armor", 0.0)
+	monster.speed = stats.get("speed", 2.0)
+	
+	return monster

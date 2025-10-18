@@ -1,0 +1,73 @@
+{
+  "monsters": [
+	{
+	  "id": "zombie_weak",
+	  "name": "Rotting Zombie",
+	  "archetype": "zombie",
+	  "min_level": 1,
+	  "max_level": 5,
+	  "base_stats": {
+		"health": 100,
+		"damage": 10,
+		"armor": 5,
+		"speed": 2.0
+	  },
+	  "scaling_per_level": {
+		"health": 15,
+		"damage": 2,
+		"armor": 1
+	  },
+	  "xp_base": 25,
+	  "loot_table": "zombie_common",
+	  "abilities": ["bite"],
+	  "ai_type": "melee_aggro",
+	  "respawn_time": 60
+	},
+	{
+	  "id": "zombie_strong",
+	  "name": "Infected Zombie",
+	  "archetype": "zombie",
+	  "min_level": 6,
+	  "max_level": 15,
+	  "base_stats": {
+		"health": 200,
+		"damage": 20,
+		"armor": 10,
+		"speed": 2.2
+	  },
+	  "scaling_per_level": {
+		"health": 20,
+		"damage": 3,
+		"armor": 1.5
+	  },
+	  "xp_base": 50,
+	  "loot_table": "zombie_uncommon",
+	  "abilities": ["bite", "poison"],
+	  "ai_type": "melee_aggro",
+	  "respawn_time": 90
+	},
+	{
+	  "id": "goblin",
+	  "name": "Goblin",
+	  "archetype": "goblin",
+	  "min_level": 3,
+	  "max_level": 12,
+	  "base_stats": {
+		"health": 80,
+		"damage": 15,
+		"armor": 8,
+		"speed": 3.5
+	  },
+	  "scaling_per_level": {
+		"health": 12,
+		"damage": 3,
+		"armor": 1.5
+	  },
+	  "xp_base": 35,
+	  "loot_table": "goblin_scout",
+	  "abilities": ["stab", "dodge"],
+	  "ai_type": "ranged_kite",
+	  "respawn_time": 45
+	}
+  ]
+}
